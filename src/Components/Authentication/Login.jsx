@@ -2,9 +2,10 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FaShieldAlt, FaMapMarkerAlt } from 'react-icons/fa'
 import coatOfArm from '../../assets/coatofarm.png'
+import truckVideo from '../../assets/truckvideo.mp4'
 
 function Login() {
-  const [email, setEmail] = useState('admin@turboflux.com')
+  const [email, setEmail] = useState('admin@example.com')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -15,7 +16,7 @@ function Login() {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch('http://api.pqacms.tfnsolutions.us/api/auth/login', {
+      const res = await fetch('https://api.pqacms.tfnsolutions.us/api/auth/login', {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -39,8 +40,8 @@ function Login() {
       localStorage.setItem('auth_token', data?.token || '')
       localStorage.setItem('user_role', data?.user?.role || '')
 
-      // Redirect to dashboard
-      navigate('/dashboard')
+      // Redirect to 2FA
+      navigate('/2fa')
     } catch (err) {
       setError(err.message || 'An unexpected error occurred')
     } finally {
@@ -49,8 +50,20 @@ function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-100 to-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+    <div className="min-h-screen relative flex items-center justify-center p-4">
+      {/* Background Video */}
+      <video
+        autoPlay
+        muted
+        loop
+        className="absolute inset-0 w-full h-full object-cover"
+      >
+        <source src={truckVideo} type="video/mp4" />
+      </video>
+      
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black bg-opacity-70"></div>
+      <div className="relative z-10 bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
         {/* Logo/Icon */}
         <div className="flex justify-center mb-4">
           <div className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center bg-white shadow-sm">
@@ -60,8 +73,9 @@ function Login() {
 
         {/* Title */}
         <div className="text-center mb-5">
-          <h1 className="text-lg font-semibold text-gray-800 mb-1 tracking-tight">PQACMS Control Center</h1>
-          <p className="text-xs text-gray-600 font-medium">Fuel Tanker Tracking & Smart Lock Control System</p>
+          <h1 className="text-lg font-semibold text-gray-800 mb-1 tracking-tight">PQAQC PRIMIS</h1>
+          <p className="text-xs text-gray-600 font-medium">Petroan Quality Assurance Quality Control</p>
+          <p className="text-xs text-gray-500 font-medium">Price Intelligence and Monitoring System</p>
         </div>
 
         {/* Security Features */}
@@ -86,7 +100,7 @@ function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all font-medium"
-              placeholder="admin@turboflux.com"
+              placeholder="admin@example.com"
             />
           </div>
 

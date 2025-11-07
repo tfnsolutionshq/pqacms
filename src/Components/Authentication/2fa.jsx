@@ -1,9 +1,12 @@
 import React, { useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { FaShieldAlt, FaTimes } from 'react-icons/fa'
+import authBg from '../../assets/Authentication/tanker.jpg'
 
 function TwoFactor() {
   const [code, setCode] = useState(['', '', '', '', '', ''])
   const inputRefs = useRef([])
+  const navigate = useNavigate()
 
   const handleInputChange = (index, value) => {
     if (value.length <= 1 && /^\d*$/.test(value)) {
@@ -25,9 +28,29 @@ function TwoFactor() {
     }
   }
 
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    // Accept any 6-digit code and redirect to dashboard
+    const fullCode = code.join('')
+    if (fullCode.length === 6) {
+      navigate('/dashboard')
+    }
+  }
+
+  const handleBackToLogin = () => {
+    navigate('/')
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-100 to-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm relative">
+    <div className="min-h-screen relative flex items-center justify-center p-4">
+      {/* Background Image */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{ backgroundImage: `url(${authBg})`, filter: 'blur(1px)', opacity: 0.8 }}
+      ></div>
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black bg-opacity-50"></div>
+      <div className="relative z-10 bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
         {/* Close Button */}
         <button className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors">
           <FaTimes className="text-lg" />
@@ -49,17 +72,7 @@ function TwoFactor() {
         </div>
 
         {/* 2FA Form */}
-        <form className="space-y-4">
-          {/* Status Text */}
-          <div className="text-center">
-            <p className="text-xs text-gray-600 mb-3 flex items-center justify-center gap-2">
-              <span className="w-3 h-3 border border-gray-400 rounded flex items-center justify-center">
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-sm"></span>
-              </span>
-              Authenticating as: Depot
-            </p>
-          </div>
-
+        <form className="space-y-4" onSubmit={handleSubmit}>
           {/* Code Input Boxes */}
           <div className="flex justify-center gap-2 mb-5">
             {code.map((digit, index) => (
@@ -88,6 +101,7 @@ function TwoFactor() {
           <div className="flex gap-3">
             <button
               type="button"
+              onClick={handleBackToLogin}
               className="flex-1 bg-gray-100 text-gray-700 font-medium py-2 px-4 text-xs rounded-lg hover:bg-gray-200 transition-all duration-200"
             >
               Back to Login

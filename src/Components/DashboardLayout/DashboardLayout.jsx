@@ -36,6 +36,9 @@ function DashboardLayout({ children, activeMenuItem = 'dashboard' }) {
       case 'device-manager':
         navigate('/tanker-fleet')
         break
+      case 'device-management':
+        navigate('/device-management')
+        break
       case 'loading-control':
         navigate('/loading-control')
         break
@@ -45,11 +48,26 @@ function DashboardLayout({ children, activeMenuItem = 'dashboard' }) {
       case 'live-tracking':
         navigate('/live-tracking')
         break
+      case 'national-waybill':
+        navigate('/national-waybill')
+        break
+      case 'quality-assurance':
+        navigate('/quality-assurance')
+        break
       case 'alert-center':
         navigate('/alerts')
         break
       case 'user-management':
         navigate('/user-management')
+        break
+      case 'depot-management':
+        navigate('/depot-management')
+        break
+      case 'station-management':
+        navigate('/station-management')
+        break
+      case 'events-and-audit-logs':
+        navigate('/events-and-audit-logs')
         break
       case 'reports':
         // Add route when implemented

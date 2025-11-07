@@ -8,7 +8,7 @@ import truckPurple from "../../assets/truck-purple.svg"
 
 const TankerFleetDashboard = () => {
   const [searchQuery, setSearchQuery] = useState("")
-  const [userRole, setUserRole] = useState(localStorage.getItem('user_role') || "depot_manager") // "depot_manager" or "driver"
+  const [userRole, setUserRole] = useState("depot_manager") // "depot_manager" or "driver"
   const [currentDriverId] = useState(() => {
     try {
       const u = JSON.parse(localStorage.getItem('user') || 'null')
@@ -31,7 +31,7 @@ const TankerFleetDashboard = () => {
       setLoading(true)
       try {
         const token = localStorage.getItem('auth_token')
-        const res = await fetch('http://api.pqacms.tfnsolutions.us/api/tankers', {
+        const res = await fetch('https://api.pqacms.tfnsolutions.us/api/tankers', {
           method: 'GET',
           headers: {
             Accept: 'application/json',
@@ -133,6 +133,14 @@ const TankerFleetDashboard = () => {
   const [registerError, setRegisterError] = useState("")
   const [registerSuccess, setRegisterSuccess] = useState("")
 
+  // Unlock modal state
+  const [showUnlockModal, setShowUnlockModal] = useState(false)
+  const [selectedTankerForUnlock, setSelectedTankerForUnlock] = useState(null)
+  const [unlockCode, setUnlockCode] = useState("")
+  const [unlockLoading, setUnlockLoading] = useState(false)
+  const [unlockError, setUnlockError] = useState("")
+  const [unlockSuccess, setUnlockSuccess] = useState("")
+
   const handleTabChange = (tankerId, tab) => {
     setActiveTab((prev) => ({ ...prev, [tankerId]: tab }))
   }
@@ -166,7 +174,7 @@ const TankerFleetDashboard = () => {
         total_trips: Number(regTotalTrips) || 0,
       }
 
-      const res = await fetch('http://api.pqacms.tfnsolutions.us/api/tankers', {
+      const res = await fetch('https://api.pqacms.tfnsolutions.us/api/tankers', {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -225,6 +233,82 @@ const TankerFleetDashboard = () => {
       setRegisterError(err.message || 'Unexpected error occurred')
     } finally {
       setRegisterLoading(false)
+    }
+  }
+
+  const handleOpenUnlockModal = (tanker) => {
+    setSelectedTankerForUnlock(tanker)
+    setUnlockCode("")
+    setUnlockError("")
+    setUnlockSuccess("")
+    setShowUnlockModal(true)
+  }
+
+  const handleUnlockTanker = async () => {
+    if (!unlockCode.trim()) {
+      setUnlockError('Please enter an unlock code.')
+      return
+    }
+
+    if (!selectedTankerForUnlock?.rawId) {
+      setUnlockError('Invalid tanker selected.')
+      return
+    }
+
+    setUnlockError("")
+    setUnlockSuccess("")
+    setUnlockLoading(true)
+
+    try {
+      if (!isLoggedIn) throw new Error('You must be logged in to unlock a tanker.')
+      const token = localStorage.getItem('auth_token')
+
+      const payload = {
+        unlock_code: unlockCode.trim(),
+        tanker_id: selectedTankerForUnlock.rawId
+      }
+
+      const res = await fetch('https://api.pqacms.tfnsolutions.us/api/tanker/unlock', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        let msg = 'Failed to unlock tanker.'
+        try {
+          const data = await res.json()
+          if (data?.message) msg = data.message
+        } catch (_) {}
+        throw new Error(msg)
+      }
+
+      const result = await res.json()
+      setUnlockSuccess('Tanker unlocked successfully.')
+      
+      // Update tanker status in the UI
+      setTankers(prev => prev.map(tanker => 
+        tanker.rawId === selectedTankerForUnlock.rawId 
+          ? { ...tanker, status: 'Unlocked' }
+          : tanker
+      ))
+
+      // Close modal after short delay
+      setTimeout(() => {
+        setShowUnlockModal(false)
+        setSelectedTankerForUnlock(null)
+        setUnlockCode("")
+        setUnlockSuccess("")
+      }, 1500)
+
+    } catch (err) {
+      setUnlockError(err.message || 'Unexpected error occurred')
+    } finally {
+      setUnlockLoading(false)
     }
   }
 
@@ -364,6 +448,15 @@ const TankerFleetDashboard = () => {
                   </span>
                   {userRole === "depot_manager" ? (
                     <>
+                      {tanker.status === "Locked" && (
+                        <button 
+                          onClick={() => handleOpenUnlockModal(tanker)}
+                          className="p-2 text-slate-600 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors"
+                          title="Unlock Tanker"
+                        >
+                          <Unlock size={16} />
+                        </button>
+                      )}
                       <button className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
                         <Eye size={16} />
                       </button>
@@ -379,6 +472,15 @@ const TankerFleetDashboard = () => {
                     </>
                   ) : (
                     <>
+                      {tanker.status === "Locked" && (
+                        <button 
+                          onClick={() => handleOpenUnlockModal(tanker)}
+                          className="p-2 text-slate-600 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors"
+                          title="Unlock Tanker"
+                        >
+                          <Unlock size={16} />
+                        </button>
+                      )}
                       <button className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
                         <Eye size={16} />
                       </button>
@@ -632,6 +734,87 @@ const TankerFleetDashboard = () => {
             {registerSuccess && (
               <div className="px-3 pb-3 text-xs text-green-600 font-medium">{registerSuccess}</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Unlock Tanker Modal */}
+      {showUnlockModal && selectedTankerForUnlock && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-lg font-semibold text-slate-900">Unlock Tanker</h2>
+              <button
+                onClick={() => setShowUnlockModal(false)}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 space-y-4">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Unlock size={24} className="text-yellow-600" />
+                </div>
+                <h3 className="text-lg font-medium text-slate-900 mb-1">
+                  {selectedTankerForUnlock.id}
+                </h3>
+                <p className="text-sm text-slate-600">
+                  Enter the unlock code to unlock this tanker
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Unlock Code
+                </label>
+                <input
+                  type="text"
+                  placeholder="TF-31411"
+                  value={unlockCode}
+                  onChange={(e) => setUnlockCode(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                  disabled={unlockLoading}
+                />
+              </div>
+
+              {unlockError && (
+                <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md">
+                  {unlockError}
+                </div>
+              )}
+
+              {unlockSuccess && (
+                <div className="text-sm text-green-600 bg-green-50 p-3 rounded-md">
+                  {unlockSuccess}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex gap-3 p-4 border-t">
+              <button
+                onClick={() => setShowUnlockModal(false)}
+                className="flex-1 px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
+                disabled={unlockLoading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUnlockTanker}
+                disabled={unlockLoading || !unlockCode.trim()}
+                className={`flex-1 px-4 py-2 text-sm text-white rounded-md font-medium transition-all ${
+                  unlockLoading || !unlockCode.trim()
+                    ? 'bg-yellow-400 cursor-not-allowed' 
+                    : 'bg-gradient-to-r from-yellow-500 to-orange-400 hover:from-yellow-600 hover:to-orange-500'
+                }`}
+              >
+                {unlockLoading ? 'Unlocking...' : 'Unlock Tanker'}
+              </button>
+            </div>
           </div>
         </div>
       )}

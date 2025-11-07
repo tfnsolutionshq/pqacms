@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react'
 import { ChevronDown, CheckCircle, Clock, Lock, X, Building2, Users, User } from 'lucide-react'
 
 function LoadingControl() {
-  const [selectedTanker, setSelectedTanker] = useState('TRK-3012 - Sarah Ibrahim')
-  const [selectedTankerId, setSelectedTankerId] = useState('')
-  const [tankerOptions, setTankerOptions] = useState([])
+  const [selectedWaybill, setSelectedWaybill] = useState('')
+  const [selectedWaybillId, setSelectedWaybillId] = useState('')
+  const [waybillOptions, setWaybillOptions] = useState([])
   const [productType, setProductType] = useState('Premium Petrol (PMS)')
   const [quantity, setQuantity] = useState('33000')
   const [destination, setDestination] = useState('Station name')
@@ -99,7 +99,7 @@ function LoadingControl() {
     }
   ]
 
-  const loadingsData = userRole === 'station-manager' ? stationLoadings : depotLoadings
+  const loadingsData = depotLoadings
 
   // Fetch depot manager load operations from API
   useEffect(() => {
@@ -108,10 +108,17 @@ function LoadingControl() {
         const token = localStorage.getItem('auth_token')
         const headers = { Accept: 'application/json' }
         if (token) headers.Authorization = `Bearer ${token}`
-        const res = await fetch('http://api.pqacms.tfnsolutions.us/api/load-operations', {
+        const res = await fetch('https://api.pqacms.tfnsolutions.us/api/load-operations', {
           method: 'GET',
           headers,
         })
+        if (res.status === 401) {
+          localStorage.removeItem('auth_token')
+          localStorage.removeItem('user_role')
+          localStorage.removeItem('user_name')
+          window.location.assign('/')
+          return
+        }
         if (!res.ok) {
           // Keep defaults if request fails
           return
@@ -127,16 +134,14 @@ function LoadingControl() {
           const status = (statusRaw === 'locked' || statusRaw === 'completed') ? 'locked' : 'pending'
           return {
             opId: item?.id || null,
-            tankerId: item?.tanker?.id || item?.tanker_id || null,
-            id: item?.tanker?.tanker_number || item?.tanker_id || item?.id || '—',
-            tankerStatus: (item?.tanker?.status || '').toLowerCase(),
+            waybillCode: item?.way_bill?.waybill_code || '—',
+            id: item?.way_bill?.waybill_code || '—',
             driver: '—',
             product: fuelLabel,
             quantity: qty,
-            destination: '—',
+            destination: item?.way_bill?.destination || '—',
             time: timeStr,
             status,
-            progress: typeof item.progress === 'number' ? item.progress : undefined,
           }
         })
         if (mapped.length > 0) {
@@ -147,38 +152,71 @@ function LoadingControl() {
       }
     }
 
-    if (userRole === 'depot-manager' && isLoggedIn) {
+    if (isLoggedIn) {
       fetchLoadOperations()
     }
-  }, [userRole, isLoggedIn])
+  }, [isLoggedIn])
 
-  // Load tanker dropdown options (persisted by TankerFleet)
+  // Load waybill dropdown options from API
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('tankers_simple')
-      const parsed = raw ? JSON.parse(raw) : []
-      if (Array.isArray(parsed) && parsed.length) {
-        setTankerOptions(parsed)
-        setSelectedTankerId(parsed[0]?.id || '')
-        setSelectedTanker(parsed[0]?.tanker_number || '')
+    const fetchWaybills = async () => {
+      try {
+        const token = localStorage.getItem('auth_token')
+        if (!token) return
+        const res = await fetch('https://api.pqacms.tfnsolutions.us/api/way-bills', {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        })
+        if (res.status === 401) {
+          localStorage.removeItem('auth_token')
+          localStorage.removeItem('user_role')
+          localStorage.removeItem('user_name')
+          window.location.assign('/')
+          return
+        }
+        if (!res.ok) return
+        const response = await res.json()
+        const waybills = response.data?.map(wb => ({
+          id: wb.id,
+          code: wb.waybill_code,
+          tanker: wb.tanker?.tanker_number || 'N/A'
+        })) || []
+        setWaybillOptions(waybills)
+        if (waybills.length > 0) {
+          setSelectedWaybillId(waybills[0].id)
+          setSelectedWaybill(`${waybills[0].code} - ${waybills[0].tanker}`)
+        }
+      } catch (_) {
+        setWaybillOptions([])
       }
-    } catch (_) {
-      setTankerOptions([])
     }
-  }, [])
+    if (isLoggedIn) {
+      fetchWaybills()
+    }
+  }, [isLoggedIn])
 
   // Also fetch tankers directly from API to ensure accurate tanker_id
   useEffect(() => {
     const fetchTankers = async () => {
       try {
-        if (!(userRole === 'depot-manager' && isLoggedIn)) return
+        if (!isLoggedIn) return
         const token = localStorage.getItem('auth_token')
         const headers = { Accept: 'application/json' }
         if (token) headers.Authorization = `Bearer ${token}`
-        const res = await fetch('http://api.pqacms.tfnsolutions.us/api/tankers', {
+        const res = await fetch('https://api.pqacms.tfnsolutions.us/api/tankers', {
           method: 'GET',
           headers,
         })
+        if (res.status === 401) {
+          localStorage.removeItem('auth_token')
+          localStorage.removeItem('user_role')
+          localStorage.removeItem('user_name')
+          window.location.assign('/')
+          return
+        }
         if (!res.ok) {
           // keep any existing options; API may return 500 if unauthenticated
           return
@@ -202,7 +240,7 @@ function LoadingControl() {
       }
     }
     fetchTankers()
-  }, [userRole, isLoggedIn])
+  }, [isLoggedIn])
 
   // Create a new loading operation
   const handleCreateLoading = async () => {
@@ -210,7 +248,7 @@ function LoadingControl() {
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) throw new Error('Please log in to create a loading.')
-      if (!selectedTankerId) throw new Error('Please select a tanker.')
+      if (!selectedWaybillId) throw new Error('Please select a waybill.')
 
       let fuelCode = 'PMS'
       const pt = (productType || '').toUpperCase()
@@ -218,7 +256,7 @@ function LoadingControl() {
       else if (pt.includes('DPK')) fuelCode = 'DPK'
 
       const payload = {
-        tanker_id: selectedTankerId,
+        way_bill_id: selectedWaybillId,
         fuel_type: fuelCode,
         quantity: Number(quantity) || 0,
         destination: destination || null,
@@ -227,7 +265,7 @@ function LoadingControl() {
         departure_time: departureTime || null,
       }
 
-      const res = await fetch('http://api.pqacms.tfnsolutions.us/api/load-operations', {
+      const res = await fetch('https://api.pqacms.tfnsolutions.us/api/load-operations', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -235,6 +273,13 @@ function LoadingControl() {
         },
         body: JSON.stringify(payload),
       })
+      if (res.status === 401) {
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('user_role')
+        localStorage.removeItem('user_name')
+        window.location.assign('/')
+        return
+      }
       if (!res.ok) {
         const txt = await res.text()
         throw new Error(txt || 'Failed to create loading operation')
@@ -244,8 +289,8 @@ function LoadingControl() {
       // Optimistically prepend to Today’s Loadings
       const newCard = {
         opId: data?.id || null,
-        tankerId: data?.tanker?.id || selectedTankerId || null,
-        id: data?.tanker?.tanker_number || selectedTanker || '—',
+        tankerId: data?.tanker?.id || selectedWaybillId || null,
+        id: data?.tanker?.tanker_number || selectedWaybill || '—',
         driver: '—',
         product: fuelCode === 'PMS' ? 'Premium Petrol' : fuelCode === 'AGO' ? 'Diesel' : fuelCode === 'DPK' ? 'Kerosene' : fuelCode,
         quantity: `${(Number(quantity) || 0).toLocaleString()}L`,
@@ -262,7 +307,7 @@ function LoadingControl() {
 
   // Inline update for a loading operation
   const [editingOpId, setEditingOpId] = useState(null)
-  const [updateForm, setUpdateForm] = useState({ status: 'queued', progress: 0, started_at: '', completed_at: '' })
+  const [updateForm, setUpdateForm] = useState({ status: 'queued', started_at: '', completed_at: '' })
   const [patchStatus, setPatchStatus] = useState({ loading: false, error: '', success: '' })
 
   const startEditLoading = (opId, loading) => {
@@ -271,7 +316,6 @@ function LoadingControl() {
     setPatchStatus({ loading: false, error: '', success: '' })
     setUpdateForm({
       status: (loading?.status === 'locked' ? 'completed' : 'loading'),
-      progress: typeof loading?.progress === 'number' ? loading.progress : 0,
       started_at: '',
       completed_at: '',
     })
@@ -290,12 +334,11 @@ function LoadingControl() {
 
       const payload = {
         status: updateForm.status || undefined,
-        progress: updateForm.progress !== '' ? Math.max(0, Math.min(100, Number(updateForm.progress))) : undefined,
         started_at: updateForm.started_at || undefined,
         completed_at: updateForm.completed_at || undefined,
       }
 
-      const res = await fetch(`http://api.pqacms.tfnsolutions.us/api/load-operations/${editingOpId}`, {
+      const res = await fetch(`https://api.pqacms.tfnsolutions.us/api/load-operations/${editingOpId}`, {
         method: 'PATCH',
         headers: {
           'Accept': 'application/json',
@@ -304,25 +347,21 @@ function LoadingControl() {
         },
         body: JSON.stringify(payload),
       })
+      if (res.status === 401) {
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('user_role')
+        localStorage.removeItem('user_name')
+        window.location.assign('/')
+        return
+      }
       if (!res.ok) {
         const txt = await res.text()
         throw new Error(txt || 'Failed to update loading')
       }
       await res.json()
       setPatchStatus({ loading: false, error: '', success: 'Loading updated.' })
-      // Reflect update in UI
-      setDepotLoadings(prev => (Array.isArray(prev) ? prev.map(card => {
-        if (card.opId === editingOpId) {
-          const updatedStatus = updateForm.status === 'completed' ? 'locked' : (updateForm.status === 'loading' ? 'pending' : card.status)
-          return {
-            ...card,
-            status: updatedStatus,
-            progress: payload.progress ?? card.progress,
-            time: updateForm.started_at ? new Date(updateForm.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : card.time,
-          }
-        }
-        return card
-      }) : prev))
+      // Refresh the page after successful update
+      window.location.reload()
     } catch (err) {
       setPatchStatus({ loading: false, error: err?.message || 'Error updating loading', success: '' })
     }
@@ -335,7 +374,7 @@ function LoadingControl() {
   const renderLoadingCards = () => (
     loadingsData.map((loading) => {
       const isLocked = loading.status === 'locked'
-      const showPendingAction = userRole === 'depot-manager'
+      const showPendingAction = true
       const tStatusFromMap = loading.tankerId ? (tankerStatusMap[loading.tankerId]?.status || '') : ''
       const tStatusRaw = tStatusFromMap || (loading.tankerStatus || '')
       const tankerIsLocked = tStatusRaw === 'locked'
@@ -392,12 +431,7 @@ function LoadingControl() {
             <span className="font-medium text-gray-900 ml-1">{loading.time}</span>
           </div>
 
-          {typeof loading.progress === 'number' && (
-            <div className="mt-2 text-xs">
-              <span className="text-gray-500">Progress:</span>
-              <span className="font-medium text-gray-900 ml-1">{loading.progress}%</span>
-            </div>
-          )}
+
 
           {/* Tanker Status (from tanker API) */}
           {loading.tankerId && (
@@ -445,30 +479,17 @@ function LoadingControl() {
                 </button>
               ) : (
                 <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Status</label>
-                      <select
-                        value={updateForm.status}
-                        onChange={(e) => handleUpdateField('status', e.target.value)}
-                        className="w-full border rounded px-2 py-1 text-xs"
-                      >
-                        <option value="queued">queued</option>
-                        <option value="loading">loading</option>
-                        <option value="completed">completed</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Progress</label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={updateForm.progress}
-                        onChange={(e) => handleUpdateField('progress', e.target.value)}
-                        className="w-full border rounded px-2 py-1 text-xs"
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Status</label>
+                    <select
+                      value={updateForm.status}
+                      onChange={(e) => handleUpdateField('status', e.target.value)}
+                      className="w-full border rounded px-2 py-1 text-xs"
+                    >
+                      <option value="queued">queued</option>
+                      <option value="loading">loading</option>
+                      <option value="completed">completed</option>
+                    </select>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -528,54 +549,13 @@ function LoadingControl() {
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Loading Management</h1>
-              <p className="text-sm text-gray-600">
-                {userRole === 'depot-manager'
-                  ? 'Manage tanker loading operations and smart lock activation'
-                  : userRole === 'station-manager'
-                  ? `View loading operations and lock status for ${selectedStation}`
-                  : 'View your assigned tanker and device information'}
-              </p>
+              <p className="text-sm text-gray-600">Manage tanker loading operations and smart lock activation</p>
             </div>
-            <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg w-fit">
-              <button
-                onClick={() => handleRoleSwitch('depot-manager')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  userRole === 'depot-manager'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <Building2 className="w-4 h-4" />
-                Depot Manager
-              </button>
-              <button
-                onClick={() => handleRoleSwitch('station-manager')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  userRole === 'station-manager'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <Users className="w-4 h-4" />
-                Station Manager
-              </button>
-              <button
-                onClick={() => handleRoleSwitch('driver')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  userRole === 'driver'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <User className="w-4 h-4" />
-                Driver
-              </button>
-            </div>
+
           </div>
         </div>
 
-        {userRole === 'depot-manager' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* New Loading Section */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200">
               <div className="p-4 border-b border-gray-200">
@@ -591,32 +571,24 @@ function LoadingControl() {
               </div>
 
               <div className="p-4 space-y-4">
-                {/* Select Tanker */}
+                {/* Select Waybill */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Tanker</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Waybill</label>
                   <div className="relative">
                     <select
-                      value={selectedTankerId}
+                      value={selectedWaybillId}
                       onChange={(e) => {
                         const id = e.target.value
-                        setSelectedTankerId(id)
-                        const opt = tankerOptions.find(t => t.id === id)
-                        setSelectedTanker(opt?.tanker_number || '')
+                        setSelectedWaybillId(id)
+                        const opt = waybillOptions.find(w => w.id === id)
+                        setSelectedWaybill(opt ? `${opt.code} - ${opt.tanker}` : '')
                       }}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none"
                     >
-                      <option value="">-- Choose Tanker --</option>
-                      {tankerOptions.length > 0 ? (
-                        tankerOptions.map(t => (
-                          <option key={t.id} value={t.id}>{t.tanker_number}</option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="TRK-3012">TRK-3012</option>
-                          <option value="TRK-2045">TRK-2045</option>
-                          <option value="TRK-1874">TRK-1874</option>
-                        </>
-                      )}
+                      <option value="">-- Choose Waybill --</option>
+                      {waybillOptions.map(w => (
+                        <option key={w.id} value={w.id}>{w.code} - {w.tanker}</option>
+                      ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-2.5 h-4 w-4 text-gray-400 pointer-events-none" />
                   </div>
@@ -758,62 +730,7 @@ function LoadingControl() {
                 {renderLoadingCards()}
               </div>
             </div>
-          </div>
-        ) : userRole === 'driver' ? (
-          <div className="max-w-2xl">
-            {/* My Current Load Section */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-              <div className="p-4 border-b border-gray-200">
-                <h2 className="text-lg font-semibold text-gray-900">My Current Load</h2>
-                <p className="text-sm text-gray-600">View your current fuel load details and lock status</p>
-              </div>
-              <div className="p-4">
-                <div className="p-4 rounded-lg border bg-green-50 border-green-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-sm text-gray-900">{driverCurrentLoad.id}</span>
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                        <div className="flex items-center gap-1">
-                          <CheckCircle size={12} />
-                          Locked ✓
-                        </div>
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-xs text-gray-600 mb-1">Driver: {driverCurrentLoad.driver}</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-gray-500">Product:</span>
-                      <div className="font-medium text-gray-900">{driverCurrentLoad.product}</div>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Quantity:</span>
-                      <div className="font-medium text-gray-900">{driverCurrentLoad.quantity}</div>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs">
-                    <span className="text-gray-500">Destination:</span>
-                    <div className="font-medium text-gray-900">{driverCurrentLoad.destination}</div>
-                  </div>
-                  <div className="mt-2 text-xs">
-                    <span className="text-gray-500">Time:</span>
-                    <span className="font-medium text-gray-900 ml-1">{driverCurrentLoad.time}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="p-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Today's Loadings</h2>
-              <p className="text-sm text-gray-600">Recent loading operations and lock status</p>
-            </div>
-            <div className="p-4 space-y-3">
-              {renderLoadingCards()}
-            </div>
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Confirmation Modal */}
@@ -870,7 +787,7 @@ function LoadingControl() {
                         return
                       }
                       setLockStatus({ loading: true, error: '', success: '' })
-                      const res = await fetch(`http://api.pqacms.tfnsolutions.us/api/load-operations/${lockContext.opId}/activate-lock`, {
+                      const res = await fetch(`https://api.pqacms.tfnsolutions.us/api/load-operations/${lockContext.opId}/activate-lock`, {
                         method: 'POST',
                         headers: {
                           'Accept': 'application/json',
@@ -879,6 +796,13 @@ function LoadingControl() {
                         },
                         body: JSON.stringify({ confirm: true }),
                       })
+                      if (res.status === 401) {
+                        localStorage.removeItem('auth_token')
+                        localStorage.removeItem('user_role')
+                        localStorage.removeItem('user_name')
+                        window.location.assign('/')
+                        return
+                      }
                       if (!res.ok) {
                         const txt = await res.text()
                         throw new Error(txt || 'Failed to activate lock')

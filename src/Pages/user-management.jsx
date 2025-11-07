@@ -1,6 +1,6 @@
 import React from 'react'
 import DashboardLayout from '../Components/DashboardLayout/DashboardLayout'
-import UserManagement from '../Components/UserManagement/UserManagement'
+import UserManagement from '../Components/Stakeholders/Stakeholders'
 
 function UserManagementPage() {
   return (

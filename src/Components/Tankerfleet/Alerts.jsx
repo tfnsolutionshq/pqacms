@@ -199,7 +199,7 @@ const Alerts = () => {
       setResolving(true)
       const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
       if (!alertId) throw new Error('Missing alert ID')
-      const res = await fetch(`http://api.pqacms.tfnsolutions.us/api/alerts/${alertId}/resolve`, {
+      const res = await fetch(`https://api.pqacms.tfnsolutions.us/api/alerts/${alertId}/resolve`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -255,7 +255,7 @@ const Alerts = () => {
     try {
       setCreatingAlert(true)
       const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
-      const res = await fetch('http://api.pqacms.tfnsolutions.us/api/alerts', {
+      const res = await fetch('https://api.pqacms.tfnsolutions.us/api/alerts', {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -316,7 +316,7 @@ const Alerts = () => {
         if (userRole !== 'depot-manager') return
         const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
         if (!token) return
-        const res = await fetch('http://api.pqacms.tfnsolutions.us/api/tankers', {
+        const res = await fetch('https://api.pqacms.tfnsolutions.us/api/tankers', {
           method: 'GET',
           headers: {
             Accept: 'application/json',
@@ -350,7 +350,7 @@ const Alerts = () => {
       setUsingFallback(false)
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
-        const res = await fetch('http://api.pqacms.tfnsolutions.us/api/alerts?page=1', {
+        const res = await fetch('https://api.pqacms.tfnsolutions.us/api/alerts?page=1', {
           headers: {
             'Accept': 'application/json',
             ...(token ? { 'Authorization': `Bearer ${token}` } : {})

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import MobileView from './MobileView'
 import { Search, Clock, CheckCircle, XCircle, MapPin, AlertTriangle, Copy, Eye, X, Users, Building2, Plus } from 'lucide-react'
 
 function UnlockCodeRequests() {
@@ -12,6 +13,8 @@ function UnlockCodeRequests() {
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [showRequestUnlockModal, setShowRequestUnlockModal] = useState(false)
   const [showReasonModal, setShowReasonModal] = useState(false)
+  const [showMobileView, setShowMobileView] = useState(false)
+  const [mobileTankerId, setMobileTankerId] = useState('')
   const [reasonToView, setReasonToView] = useState('')
   const [selectedRequest, setSelectedRequest] = useState(null)
   const [selectedTanker, setSelectedTanker] = useState(null)
@@ -23,12 +26,17 @@ function UnlockCodeRequests() {
   const [currentPage, setCurrentPage] = useState(1)
   const [lastPage, setLastPage] = useState(1)
   const [total, setTotal] = useState(0)
+  // Approve modal inputs/state
+  const [approveUnlockCode, setApproveUnlockCode] = useState('')
+  const [approving, setApproving] = useState(false)
+  const [approveError, setApproveError] = useState('')
   // Station Manager new request inputs
   const [tankerOptions, setTankerOptions] = useState([])
   const [selectedTankerId, setSelectedTankerId] = useState('')
   const [newDestination, setNewDestination] = useState('')
   const [newNote, setNewNote] = useState('')
   const [posting, setPosting] = useState(false)
+  const [requestError, setRequestError] = useState('')
 
   // Sample data for unlock requests
   const unlockRequests = [
@@ -171,7 +179,7 @@ function UnlockCodeRequests() {
       setLoading(true)
       setError('')
       try {
-        const res = await fetch(`http://api.pqacms.tfnsolutions.us/api/unlock-requests?page=${currentPage}`,
+        const res = await fetch(`https://api.pqacms.tfnsolutions.us/api/unlock-requests?page=${currentPage}`,
           {
             headers: {
               Accept: 'application/json',
@@ -182,17 +190,22 @@ function UnlockCodeRequests() {
         )
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = await res.json()
-        const mapped = (json.data || []).map((item) => ({
-          id: item.id,
-          tanker: item?.tanker?.tanker_number || item.tanker_id || '—',
-          driver: item?.tanker?.driver_id || '',
-          destination: item.destination || '',
-          distance: '-',
-          status: item.status || 'pending',
-          code: item.code || null,
-          rejectedReason: item.rejected_reason || null,
-          actions: getActions(item.status, item.code)
-        }))
+        const mapped = (json.data || []).map((item) => {
+          const status = item?.status || 'pending'
+          const code = item?.unlock_code || item?.code || null
+          return {
+            id: item.id,
+            tanker: item?.tanker?.tanker_number || item.tanker_id || '—',
+            driver: item?.tanker?.driver_id || '',
+            destination: item.destination || '',
+            distance: '-',
+            status,
+            // API returns `unlock_code`; keep backward-compat with `code`
+            code,
+            rejectedReason: item.rejected_reason || null,
+            actions: getActions(status, code)
+          }
+        })
         setRequests(mapped)
         setLastPage(json.last_page ?? 1)
         setTotal(json.total ?? mapped.length)
@@ -265,6 +278,9 @@ function UnlockCodeRequests() {
   // Handler functions
   const handleApprove = (request) => {
     setSelectedRequest(request)
+    setApproveUnlockCode(request?.code || '')
+    setApproveError('')
+    setApproving(false)
     setShowApproveModal(true)
   }
 
@@ -275,47 +291,46 @@ function UnlockCodeRequests() {
 
   const handleConfirmApprove = async () => {
     const token = localStorage.getItem('auth_token')
-    if (!selectedRequest?.id) {
-      setShowApproveModal(false)
-      setSuccessMessage('No request selected for approval')
-      setShowSuccessModal(true)
+    const code = (approveUnlockCode || '').trim()
+    if (!code) {
+      setApproveError('Please enter the unlock code')
       return
     }
     if (!token) {
-      setShowApproveModal(false)
-      setSuccessMessage('Not authenticated: please login to approve requests')
-      setShowSuccessModal(true)
+      setApproveError('Not authenticated: please login to approve requests')
       return
     }
     try {
-      const res = await fetch(`http://api.pqacms.tfnsolutions.us/api/unlock-requests/${selectedRequest.id}/approve`, {
+      setApproving(true)
+      setApproveError('')
+      const res = await fetch('https://api.pqacms.tfnsolutions.us/api/unlock-requests/approve', {
         method: 'POST',
         headers: {
           Accept: 'application/json',
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify({ unlock_code: code })
       })
-      let codeFromResponse = null
-      try {
-        const json = await res.json()
-        codeFromResponse = json?.code || null
-      } catch (_) {
-        // non-JSON or empty body
+      let json = null
+      try { json = await res.json() } catch (_) {}
+      if (!res.ok) {
+        const apiMsg = (json && (json.message || json.error)) || `HTTP ${res.status}`
+        throw new Error(apiMsg)
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-      // Update local list optimistically
-      setRequests((prev) => prev.map((r) => r.id === selectedRequest.id
-        ? { ...r, status: 'approved', code: codeFromResponse ?? r.code, actions: getActions('approved', codeFromResponse ?? r.code) }
+      // Optimistically update selected request as approved
+      setRequests((prev) => prev.map((r) => r.id === selectedRequest?.id
+        ? { ...r, status: 'approved', code: r.code || code, actions: getActions('approved', r.code || code) }
         : r
       ))
       setShowApproveModal(false)
-      setSuccessMessage('Request approved successfully')
+      setSuccessMessage('Unlock request approved successfully')
       setShowSuccessModal(true)
     } catch (e) {
-      setShowApproveModal(false)
-      setSuccessMessage('Failed to approve request')
-      setShowSuccessModal(true)
+      setApproveError(e?.message || 'Failed to approve unlock request')
+    } finally {
+      setApproving(false)
     }
   }
 
@@ -339,7 +354,7 @@ function UnlockCodeRequests() {
       return
     }
     try {
-      const res = await fetch(`http://api.pqacms.tfnsolutions.us/api/unlock-requests/${selectedRequest.id}/reject`, {
+      const res = await fetch(`https://api.pqacms.tfnsolutions.us/api/unlock-requests/${selectedRequest.id}/reject`, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -420,25 +435,34 @@ function UnlockCodeRequests() {
   }
 
   const handleSubmitUnlockRequest = async () => {
+    // Validate before opening mobile view overlay
+    const isValidUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v || '')
+
     if (!selectedTankerId) {
-      setSuccessMessage('Please select a tanker first')
-      setShowSuccessModal(true)
+      setRequestError('Please select a tanker first')
+      return
+    }
+    if (!isValidUuid(selectedTankerId)) {
+      setRequestError('Selected tanker ID is invalid. Please choose a valid tanker.')
       return
     }
     if (!newDestination.trim()) {
-      setSuccessMessage('Please enter a destination')
-      setShowSuccessModal(true)
+      setRequestError('Please enter a destination')
       return
     }
     const token = localStorage.getItem('auth_token')
     if (!token) {
-      setSuccessMessage('Not authenticated: please login to submit unlock request')
-      setShowSuccessModal(true)
+      setRequestError('Not authenticated: please login to submit unlock request')
       return
     }
+    // Open mobile verification view only after basic validation passes
+    setRequestError('')
+    // Preserve the tanker ID for the mobile overlay so it doesn't get cleared
+    setMobileTankerId(selectedTankerId)
+    setShowMobileView(true)
     try {
       setPosting(true)
-      const res = await fetch('http://api.pqacms.tfnsolutions.us/api/unlock-requests', {
+      const res = await fetch('https://api.pqacms.tfnsolutions.us/api/unlock-requests', {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -461,13 +485,11 @@ function UnlockCodeRequests() {
       setSelectedTankerId('')
       setNewDestination('')
       setNewNote('')
-      setSuccessMessage('Unlock code request submitted successfully!')
-      setShowSuccessModal(true)
+      // Do not show success modal; MobileView will handle the UX
       // Optionally refresh list
       setCurrentPage(1)
     } catch (e) {
-      setSuccessMessage('Failed to submit unlock request')
-      setShowSuccessModal(true)
+      setRequestError('Failed to submit unlock request')
     } finally {
       setPosting(false)
     }
@@ -481,7 +503,7 @@ function UnlockCodeRequests() {
     const controller = new AbortController()
     async function loadTankers() {
       try {
-        const res = await fetch('http://api.pqacms.tfnsolutions.us/api/tankers', {
+        const res = await fetch('https://api.pqacms.tfnsolutions.us/api/tankers', {
           headers: {
             Accept: 'application/json',
             Authorization: `Bearer ${token}`
@@ -788,7 +810,7 @@ function UnlockCodeRequests() {
         </div>
       </div>
 
-      {/* GPS Verification Success Modal */}
+      {/* Approve Request Modal - with validation and API call */}
       {showApproveModal && selectedRequest && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -806,8 +828,8 @@ function UnlockCodeRequests() {
               </div>
               
               <div className="text-center mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">GPS Verification Successful</h3>
-                <p className="text-sm text-gray-600">Tanker location verified. Unlock code generated.</p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Approve Unlock Request</h3>
+                <p className="text-sm text-gray-600">Confirm or enter the unlock code, then approve.</p>
               </div>
 
               <div className="space-y-3 mb-6">
@@ -815,41 +837,35 @@ function UnlockCodeRequests() {
                   <span className="text-gray-600">Tanker:</span>
                   <span className="font-medium text-gray-900">{selectedRequest.tanker}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Distance:</span>
-                  <span className="font-medium text-green-600">8m from destination</span>
-                </div>
               </div>
 
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Unlock Code</label>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-mono font-bold text-gray-900 tracking-wider">
-                    TF-93439
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500 mt-2 text-center">
-                  This code has been sent to the Station Manager and Driver via SMS and in-app notification.
-                </p>
+                <input
+                  type="text"
+                  value={approveUnlockCode}
+                  onChange={(e) => setApproveUnlockCode(e.target.value)}
+                  placeholder="TF-XXXXX"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+                {approveError && (
+                  <p className="text-xs text-red-600 mt-2">{approveError}</p>
+                )}
               </div>
 
               <div className="flex gap-3">
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText('TF-93439')
-                    setSuccessMessage('Code copied to clipboard')
-                    setShowApproveModal(false)
-                    setShowSuccessModal(true)
-                  }}
+                  onClick={() => setShowApproveModal(false)}
                   className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
                 >
-                  Copy Code
+                  Cancel
                 </button>
                 <button
                   onClick={handleConfirmApprove}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors"
+                  disabled={approving || !approveUnlockCode.trim()}
+                  className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors disabled:bg-green-300 disabled:cursor-not-allowed"
                 >
-                  Done
+                  {approving ? 'Approving…' : 'Approve'}
                 </button>
               </div>
             </div>
@@ -962,74 +978,37 @@ function UnlockCodeRequests() {
             </div>
 
             <div className="space-y-4">
+              {requestError && (
+                <div className="px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
+                  {requestError}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Select Tanker <span className="text-red-500">*</span>
                 </label>
                 <select
-                  value={selectedTanker?.id || ''}
+                  value={selectedTankerId || ''}
                   onChange={(e) => handleTankerSelect(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  disabled={tankerOptions.length === 0}
                 >
-                  <option value="">Choose a loaded tanker..</option>
-                  {(tankerOptions.length ? tankerOptions : availableTankers).map((t) => (
+                  <option value="">{tankerOptions.length ? 'Choose a loaded tanker…' : 'No tankers loaded. Please login or refresh.'}</option>
+                  {tankerOptions.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {(t.tanker_number || t.id)}
-                      {t.plateNumber ? ` • ${t.plateNumber}` : ''}
-                      {t.driver ? ` • ${t.driver}` : ''}
+                      {t.tanker_number || t.id}
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-gray-500 mt-1">Selected ID: {selectedTankerId || '—'}</p>
+                {tankerOptions.length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">Cannot proceed without a valid tanker ID (UUID). Ensure you are authenticated so tankers can be fetched.</p>
+                )}
               </div>
 
               {selectedTanker && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <div className="flex items-center mb-2">
-                    <div className="w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center mr-2">
-                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <h4 className="font-medium text-yellow-800">Loaded Tanker Details</h4>
-                  </div>
-                  <p className="text-sm text-yellow-700 mb-2">Verify information before requesting</p>
+                <div className="bg-white rounded-lg ">
                   
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="font-medium text-gray-700">Product:</span>
-                      <p className="text-gray-900">{selectedTanker.product}</p>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700">Quantity:</span>
-                      <p className="text-gray-900">{selectedTanker.quantity}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-3">
-                    <span className="font-medium text-gray-700">Destination:</span>
-                    <div className="flex items-center mt-1">
-                      <svg className="w-4 h-4 text-gray-500 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <p className="text-gray-900">{selectedTanker.destination}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-3">
-                    <span className="font-medium text-gray-700">Driver:</span>
-                    <p className="text-gray-900">{selectedTanker.driver}</p>
-                  </div>
-
-                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                    <div className="flex items-center">
-                      <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span className="font-medium text-blue-800">GPS Verification Required:</span>
-                    </div>
-                    <p className="text-sm text-blue-700 mt-1">You must be within 10 meters of the destination to request unlock code.</p>
-                  </div>
                 </div>
               )}
 
@@ -1072,7 +1051,7 @@ function UnlockCodeRequests() {
               </button>
               <button
                 onClick={handleSubmitUnlockRequest}
-                disabled={posting}
+                disabled={posting || !(selectedTankerId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(selectedTankerId)) || !newDestination.trim()}
                 className="px-4 py-2 bg-gradient-to-r from-green-500 to-yellow-500 text-white rounded-md hover:from-green-600 hover:to-yellow-600 flex items-center"
               >
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1129,6 +1108,47 @@ function UnlockCodeRequests() {
               >
                 OK
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile View Overlay */}
+      {showMobileView && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop to gray out entire app fully */}
+          <div
+            className="absolute inset-0 bg-black bg-opacity-100"
+            onClick={() => { setShowMobileView(false); setMobileTankerId('') }}
+          />
+
+          {/* Mobile device frame */}
+          <div className="relative w-[380px] max-w-[90vw] h-[720px] max-h-[90vh] bg-white rounded-[2rem] shadow-2xl border border-gray-200 overflow-hidden flex flex-col">
+            {/* Notch / status bar */}
+            <div className="h-6 bg-gray-100 flex items-center justify-between px-4 text-[10px] text-gray-600">
+              <span>09:41</span>
+              <div className="flex items-center gap-1">
+                <span>📶</span>
+                <span>🔋</span>
+              </div>
+            </div>
+
+            {/* App header */}
+            <div className="px-4 py-3 border-b bg-green-600 text-white flex items-center justify-between">
+              <span className="font-semibold text-sm">PQACMS Mobile</span>
+              <button
+                onClick={() => { setShowMobileView(false); setMobileTankerId('') }}
+                className="text-white/90 hover:text-white text-xs border border-white/30 px-2 py-1 rounded"
+                aria-label="Close mobile view"
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Mobile app content */}
+            <div className="flex-1 overflow-y-auto bg-gray-50">
+              {/* Pass only the selectedTankerId to avoid mixing number vs UUID */}
+              <MobileView tankerId={mobileTankerId || selectedTankerId || ''} />
             </div>
           </div>
         </div>
